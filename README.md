@@ -17,7 +17,7 @@ Manager (recommended) or embed the framework manually.
 ### Swift Package Manager (recommended)
 
 In Xcode, choose **File > Add Package Dependencies…**, enter the repository URL, and
-select the **Up to Next Major Version** rule starting at `1.0.10`:
+select the **Up to Next Major Version** rule starting at `1.0.11`:
 
 ```text
 https://github.com/Stay22/stay22-ios-sdk
@@ -27,7 +27,7 @@ Or add it to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/Stay22/stay22-ios-sdk.git", from: "1.0.10")
+    .package(url: "https://github.com/Stay22/stay22-ios-sdk.git", from: "1.0.11")
 ]
 ```
 
