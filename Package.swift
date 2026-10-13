@@ -12,8 +12,8 @@ let package = Package(
     targets: [
         .binaryTarget(
             name: "Stay22SDK",
-            url: "https://github.com/Stay22/stay22-ios-sdk/releases/download/1.6.3/Stay22SDK.xcframework.zip",
-            checksum: "72381f470f6c001c1d18ffd66473bf1a5df64eb70308146b46a48451160327d5"
+            url: "https://github.com/Stay22/stay22-ios-sdk/releases/download/1.6.4-rc.1/Stay22SDK.xcframework.zip",
+            checksum: "5dcf93c06c72db2e82f5c417773b80f8ea46b25f3d5efb3961f7e8a6c82335d5"
         )
     ]
 )
