@@ -1,13 +1,12 @@
 # Stay22 iOS SDK
 
-Native iOS SDK that turns travel intent in your app into timely, revenue-generating
-accommodation offers. When your app captures a destination, dates, or hotel/accommodation
-search text, the SDK schedules a single, well-timed local notification that opens a
-curated Stay22 booking experience.
+Native iOS SDK for notification-driven accommodation discovery. When your app captures
+a destination, dates or a hotel, the SDK can schedule one local notification that opens
+a Stay22 booking page for that trip.
 
 - No third-party dependencies · iOS 15+ · Swift 5.9+
 - Ships an Apple privacy manifest
-- You control enablement, notification permission, and user consent
+- You control enablement, notification permission and user consent
 
 ## Installation
 
@@ -17,7 +16,7 @@ Manager (recommended) or embed the framework manually.
 ### Swift Package Manager (recommended)
 
 In Xcode, choose **File > Add Package Dependencies…**, enter the repository URL, and
-select the **Up to Next Major Version** rule starting at `3.1.0`:
+select the **Up to Next Major Version** rule starting at `3.1.1`:
 
 ```text
 https://github.com/Stay22/stay22-ios-sdk
@@ -27,7 +26,7 @@ Or add it to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/Stay22/stay22-ios-sdk.git", from: "3.1.0")
+    .package(url: "https://github.com/Stay22/stay22-ios-sdk.git", from: "3.1.1")
 ]
 ```
 
@@ -64,126 +63,49 @@ loading error.
 
 ## Quick Start
 
+Run SDK calls on the main actor. Initialize during app launch, before handling a cold
+notification tap.
+
 ```swift
+import Foundation
 import Stay22SDK
 
-// Set before initialize if you gate Stay22 behind consent.
-Stay22.isEnabled = userHasOptedInToStay22Offers
-
-Stay22.initialize(aid: "your-partner-id")
-
-Task {
-    await Stay22.requestNotificationPermission()
+@MainActor
+func startStay22(userOptedIn: Bool) {
+    Stay22.isEnabled = userOptedIn
+    Stay22.initialize(aid: "your-partner-id")
 }
 
-Stay22.setTravelContext(
-    TravelContext(address: "Paris, France")
-)
+@MainActor
+func submitTrip() -> NotificationResult {
+    // Illustrative app-chosen validity bounds, not SDK defaults.
+    let now = Int64(Date().timeIntervalSince1970 * 1000)
+    let request = NotificationRequest(
+        trip: TravelContext(address: "Paris, France"),
+        timing: .after(delayMs: 30 * 60 * 1000),
+        expiresAtMs: now + 12 * 60 * 60 * 1000,
+        actionExpiresAtMs: now + 24 * 60 * 60 * 1000
+    )
+    return Stay22.notifications.ensure(request)
+}
 ```
 
-Call `initialize(aid:)` once, as early as possible in app launch.
-
-## Consent And Permission
-
-Recommended practices when enabling Stay22:
-
-- consider surfacing opt-in language before enabling Stay22;
-- do not require Stay22 or notification permission for core app functionality;
-- provide an in-app opt-out control;
-- update your privacy disclosures as needed.
-
-```swift
-Stay22.isEnabled = userHasOptedInToStay22Offers
-```
-
-When set to `false`, the SDK stops scheduling and clears pending Stay22
-notifications. The value is persisted and can be set before initialization.
-
-Request local notification permission when it fits your UX:
+Submit each trip once and keep the request to retry it; a submitted result can still be
+rejected during preparation. The two expiry times are required unless your Stay22 account
+sets a validity policy. Ask for notification permission when it fits your flow:
 
 ```swift
 let granted = await Stay22.requestNotificationPermission()
 ```
 
-Check status without prompting:
+To keep the SDK off until the user opts in, set `Stay22RequiresConsent` to `true` in
+`Info.plist`, then set `Stay22.isEnabled = true` after consent. Otherwise the SDK
+starts enabled.
 
-```swift
-let canNotify = await Stay22.hasNotificationPermission()
-```
+## Info.plist
 
-## Travel Context
-
-Pass explicit travel intent when the app knows a destination, coordinates, dates,
-or hotel/accommodation search text.
-
-```swift
-Stay22.setTravelContext(
-    TravelContext(
-        address: "Tokyo, Japan",
-        latitude: 35.6762,
-        longitude: 139.6503,
-        checkinDate: "2026-04-10",
-        checkoutDate: "2026-04-15"
-    )
-)
-```
-
-Address-only and coordinate-only contexts are valid:
-
-```swift
-Stay22.setTravelContext(TravelContext(address: "Barcelona, Spain"))
-Stay22.setTravelContext(TravelContext(latitude: 41.3851, longitude: 2.1734))
-```
-
-Use `hotelName` when the app has hotel or accommodation search text. It does not
-need to be an exact canonical hotel match:
-
-```swift
-Stay22.setTravelContext(
-    TravelContext(address: "Paris, France", hotelName: "Hotel Example")
-)
-```
-
-Notes:
-
-- Dates use `YYYY-MM-DD`.
-- `setTravelContext` merges non-empty fields, so destination and dates can arrive
-  on different screens.
-- Scheduling only uses explicit travel intent: address, coordinates, or hotel
-  search text.
-- Call `Stay22.clearTravelContext()` when a search/trip flow resets, the user signs
-  out, or consent is revoked.
-
-## Notification Appearance
-
-```swift
-Stay22.notificationConfig = NotificationConfig(
-    title: "Hotels in {destination}",
-    subtitle: "{checkin}-{checkout}",
-    message: "Find stays near {destination}.",
-    categoryId: "stay22_destinations",
-    threadId: "stay22",
-    badge: 1,
-    launchImageName: "Stay22Launch",
-    targetContentIdentifier: "stay22-trip",
-    interruptionLevel: .active,
-    relevanceScore: 0.8,
-    attachments: [
-        NotificationAttachment(fileURL: localImageFileURL)
-    ],
-    actions: [
-        NotificationAction(identifier: "open_stays", title: "View stays")
-    ]
-)
-```
-
-Supported placeholders in text fields: `{destination}`, `{checkin}`, `{checkout}`.
-Attachments must use local file URLs. iOS controls the compact notification layout;
-custom expanded layouts require a host-app Notification Content Extension.
-
-## Required Info.plist Keys
-
-Add the following keys to the host app's `Info.plist` for the SDK to function correctly:
+The SDK checks which booking apps are installed. iOS answers only for schemes your app
+declares; an undeclared app is treated as unknown:
 
 ```xml
 <key>LSApplicationQueriesSchemes</key>
@@ -196,83 +118,40 @@ Add the following keys to the host app's `Info.plist` for the SDK to function co
 </array>
 ```
 
-## Scheduling
+## Notification Taps
 
-Automatic scheduling runs when fresh travel context exists and the app backgrounds.
-The delay, cooldown, frequency, distance gates, and remote disable switch come from
-Stay22 partner config and Nova decisions.
-
-If the host app needs to choose the scheduling moment:
+`initialize(aid:)` sets the SDK as `UNUserNotificationCenter.delegate` and forwards to
+any delegate already there. If another push library assigns the delegate after it, or
+your app owns the delegate, forward Stay22 notifications yourself:
 
 ```swift
-Stay22.advanced.scheduleNotification()
-```
+// didReceive
+if Stay22.handleNotificationResponse(response) { completionHandler(); return }
 
-The SDK keeps at most one pending Stay22 notification. A changed travel context
-replaces the pending notification; the same context keeps the existing timer.
-
-## Events
-
-```swift
-Stay22.advanced.setEventHandler { event in
-    switch event {
-    case .locationUpdated(let destination):
-        print("Stay22 context: \(destination)")
-    case .notificationScheduled(let destination, let delay):
-        print("Stay22 scheduled: \(destination), delay=\(delay)s")
-    case .notificationClicked(let destination, let url):
-        print("Stay22 clicked: \(destination), \(url)")
-    case .notificationSkipped(let reason),
-         .notificationBlocked(let reason),
-         .notificationCancelled(let reason):
-        print("Stay22 stopped: \(reason)")
-    default:
-        break
-    }
+// willPresent: present only when the SDK still allows it
+if Stay22.isStay22Notification(notification) {
+    let show = Stay22.handleWillPresentNotification(notification)
+    completionHandler(show ? [.banner, .sound, .list] : [])
+    return
 }
 ```
 
-Locally emitted skip reasons include `sdk_disabled`, `missing_destination`,
-`app_foreground`, `home_destination`, `partner_config_disabled`, `local_cooldown`,
-`duplicate_pending_notification`, and `notification_permission_denied`. The Nova
-decision endpoint can also return server-provided reasons (for example
-`distance_below_threshold` or `frequency_capped`).
+Without forwarding, a tap opens nothing.
 
-## Testing
+## Verify
 
-For local QA only:
+In an internal build, request a test notification that skips the normal delay and
+cooldowns (consent and permission still apply):
 
 ```swift
-Stay22.testing.force = true
 Stay22.testing.showLogs = true
-Stay22.setTravelContext(TravelContext(address: "Paris, France"))
+Stay22.testing.scheduleNotification(TravelContext(address: "Paris, France"))
 ```
 
-Force mode uses a 5-second notification delay and skips local gates so the same
-flow can be tested repeatedly. Do not ship production builds with force mode on.
+Keep test calls and logging out of public builds.
 
-## Privacy
-
-The SDK does not request device GPS permission and is not used for cross-app
-tracking. It may send the partner ID, explicit destination context, and anonymous
-SDK interaction events to Stay22. The host app is responsible for consent, privacy
-policy disclosures, and app-store privacy answers.
-
-## API Summary
-
-| API | Purpose |
-|---|---|
-| `Stay22.initialize(aid:)` | Start the SDK. |
-| `Stay22.isEnabled` | Enable/disable scheduling; persisted, settable before init. |
-| `Stay22.requestNotificationPermission()` | Prompt for local notification permission. |
-| `Stay22.hasNotificationPermission()` | Check notification permission. |
-| `Stay22.setTravelContext(_:)` | Provide destination, coordinates, dates, or hotel search text. |
-| `Stay22.clearTravelContext()` | Clear context and pending Stay22 notification. |
-| `Stay22.notificationConfig` | Customize notification copy, grouping, badge, attachments, and actions. |
-| `Stay22.campaignId` | Optional URL attribution. |
-| `Stay22.advanced.setEventHandler(_:)` | Observe SDK events. |
-| `Stay22.advanced.scheduleNotification()` | Manually run scheduling. |
-| `Stay22.testing.force/showLogs` | QA overrides. |
+Upgrading from 1.x: the breaking changes and what to call instead are in this
+repository's [Releases](https://github.com/Stay22/stay22-ios-sdk/releases).
 
 ## License
 
@@ -282,5 +161,5 @@ agreement with Stay22. Contact your Stay22 representative for terms.
 
 ## Support
 
-Questions? See https://dev.stay22.com/docs/mobile-sdk or contact your Stay22
-representative.
+Full guide, privacy details and changelog: https://dev.stay22.com/docs/mobile-sdk.
+Questions? Contact your Stay22 representative.
